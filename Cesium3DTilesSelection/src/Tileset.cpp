@@ -348,6 +348,20 @@ Tileset::updateView(const std::vector<ViewState>& frustums, float deltaTime) {
     result = ViewUpdateResult();
   }
 
+
+  for (TileLoadTask& item : _workerThreadLoadCustomQueue) {
+    _workerThreadLoadQueue.push_back(item);
+  }
+  for (TileLoadTask& item : _mainThreadLoadCustomQueue) {
+    _mainThreadLoadQueue.push_back(item);
+  }
+
+  _workerThreadLoadCustomQueue.clear();
+  _mainThreadLoadCustomQueue.clear();
+
+  
+
+
   result.workerThreadTileLoadQueueLength =
       static_cast<int32_t>(this->_workerThreadLoadQueue.size());
   result.mainThreadTileLoadQueueLength =
@@ -1420,6 +1434,35 @@ void Tileset::_unloadCachedTiles(double timeBudget) noexcept {
 
 void Tileset::_markTileVisited(Tile& tile) noexcept {
   this->_loadedTiles.insertAtTail(tile);
+}
+
+
+
+bool Tileset::addTileToLoadQueue(Tile& tile) {
+  /*addTileToLoadQueue(tile, TileLoadPriorityGroup::Normal, 0);*/
+  assert(
+      std::find_if(
+          this->_workerThreadLoadCustomQueue.begin(),
+          this->_workerThreadLoadCustomQueue.end(),
+          [&](const TileLoadTask& task) { return task.pTile == &tile; }) ==
+      this->_workerThreadLoadCustomQueue.end());
+  assert(
+      std::find_if(
+          this->_mainThreadLoadCustomQueue.begin(),
+          this->_mainThreadLoadCustomQueue.end(),
+          [&](const TileLoadTask& task) { return task.pTile == &tile; }) ==
+      this->_mainThreadLoadCustomQueue.end());
+
+  if (this->_pTilesetContentManager->tileNeedsWorkerThreadLoading(tile)) {
+    this->_workerThreadLoadCustomQueue.push_back(
+        {&tile, TileLoadPriorityGroup::Normal, 0});
+    return true;
+  } else if (this->_pTilesetContentManager->tileNeedsMainThreadLoading(tile)) {
+    this->_mainThreadLoadCustomQueue.push_back(
+        {&tile, TileLoadPriorityGroup::Normal, 0});
+    return true;
+  }
+  return false;
 }
 
 void Tileset::addTileToLoadQueue(

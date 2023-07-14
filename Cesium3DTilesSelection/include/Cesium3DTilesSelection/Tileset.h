@@ -90,6 +90,11 @@ public:
    */
   ~Tileset() noexcept;
 
+
+  bool addTileToLoadQueue(
+      Tile& tile);
+
+
   /**
    * @brief Get tileset credits.
    */
@@ -429,6 +434,8 @@ private:
 
   std::vector<TileLoadTask> _mainThreadLoadQueue;
   std::vector<TileLoadTask> _workerThreadLoadQueue;
+  std::vector<TileLoadTask> _mainThreadLoadCustomQueue;
+  std::vector<TileLoadTask> _workerThreadLoadCustomQueue;
 
   Tile::LoadedLinkedList _loadedTiles;
 
