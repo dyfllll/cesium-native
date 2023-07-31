@@ -324,7 +324,7 @@ bool shouldCacheRequest(
   if (maxAge == 0) {
     HttpHeaders::const_iterator expiresHeader = responseHeaders.find("Expires");
     if (expiresHeader == responseHeaders.end()) {
-      return false;
+      return true; 
     }
 
     return std::difftime(
