@@ -4,6 +4,7 @@
 
 #include <spdlog/fwd.h>
 
+#include <atomic>
 #include <cstddef>
 #include <memory>
 #include <optional>
@@ -31,6 +32,7 @@ public:
   SqliteCache(
       const std::shared_ptr<spdlog::logger>& pLogger,
       const std::string& databaseName,
+      int32_t requestsPerCachePrune = 10000,
       uint64_t maxItems = 4096);
   ~SqliteCache();
 
@@ -41,6 +43,7 @@ public:
   /** @copydoc ICacheDatabase::storeEntry*/
   virtual bool storeEntry(
       const std::string& key,
+      std::time_t localCacheTime,
       std::time_t expiryTime,
       const std::string& url,
       const std::string& requestMethod,
@@ -55,7 +58,17 @@ public:
   /** @copydoc ICacheDatabase::clearAll*/
   virtual bool clearAll() override;
 
+  virtual std::atomic<int32_t>& requestSinceLastPrune() override {
+    return _requestSinceLastPrune;
+  }
+
+  virtual int32_t requestsPerCachePrune() const override {
+    return _requestsPerCachePrune;
+  }
+
 private:
+  int32_t _requestsPerCachePrune;
+  std::atomic<int32_t> _requestSinceLastPrune;
   struct Impl;
   std::unique_ptr<Impl> _pImpl;
   void createConnection() const;

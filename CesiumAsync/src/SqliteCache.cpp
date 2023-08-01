@@ -20,6 +20,7 @@ namespace {
 // Cache table column names
 const std::string CACHE_TABLE = "CacheItemTable";
 const std::string CACHE_TABLE_KEY_COLUMN = "key";
+const std::string CACHE_TABLE_LOCAL_CACHE_TIME_COLUMN = "localCacheTime";
 const std::string CACHE_TABLE_EXPIRY_TIME_COLUMN = "expiryTime";
 const std::string CACHE_TABLE_LAST_ACCESSED_TIME_COLUMN = "lastAccessedTime";
 const std::string CACHE_TABLE_RESPONSE_HEADER_COLUMN = "responseHeaders";
@@ -34,7 +35,8 @@ const std::string CACHE_TABLE_VIRTUAL_TOTAL_ITEMS_COLUMN = "totalItems";
 // Sql commands for setting up database
 const std::string CREATE_CACHE_TABLE_SQL =
     "CREATE TABLE IF NOT EXISTS " + CACHE_TABLE + "(" + CACHE_TABLE_KEY_COLUMN +
-    " TEXT PRIMARY KEY NOT NULL," + CACHE_TABLE_EXPIRY_TIME_COLUMN +
+    " TEXT PRIMARY KEY NOT NULL," + CACHE_TABLE_LOCAL_CACHE_TIME_COLUMN +
+    " DATETIME NOT NULL," + CACHE_TABLE_EXPIRY_TIME_COLUMN +
     " DATETIME NOT NULL," + CACHE_TABLE_LAST_ACCESSED_TIME_COLUMN +
     " DATETIME NOT NULL," + CACHE_TABLE_RESPONSE_HEADER_COLUMN +
     " TEXT NOT NULL," + CACHE_TABLE_RESPONSE_STATUS_CODE_COLUMN +
@@ -51,9 +53,9 @@ const std::string PRAGMA_PAGE_SIZE_SQL = "PRAGMA page_size=4096";
 
 // Sql commands for getting entry from database
 const std::string GET_ENTRY_SQL =
-    "SELECT rowid, " + CACHE_TABLE_EXPIRY_TIME_COLUMN + ", " +
-    CACHE_TABLE_RESPONSE_HEADER_COLUMN + ", " +
-    CACHE_TABLE_RESPONSE_STATUS_CODE_COLUMN + ", " +
+    "SELECT rowid, " + CACHE_TABLE_LOCAL_CACHE_TIME_COLUMN + ", " +
+    CACHE_TABLE_EXPIRY_TIME_COLUMN + ", " + CACHE_TABLE_RESPONSE_HEADER_COLUMN +
+    ", " + CACHE_TABLE_RESPONSE_STATUS_CODE_COLUMN + ", " +
     CACHE_TABLE_RESPONSE_DATA_COLUMN + ", " +
     CACHE_TABLE_REQUEST_HEADER_COLUMN + ", " +
     CACHE_TABLE_REQUEST_METHOD_COLUMN + ", " + CACHE_TABLE_REQUEST_URL_COLUMN +
@@ -65,14 +67,15 @@ const std::string UPDATE_LAST_ACCESSED_TIME_SQL =
 
 // Sql commands for storing response
 const std::string STORE_RESPONSE_SQL =
-    "REPLACE INTO " + CACHE_TABLE + " (" + CACHE_TABLE_EXPIRY_TIME_COLUMN +
-    ", " + CACHE_TABLE_LAST_ACCESSED_TIME_COLUMN + ", " +
+    "REPLACE INTO " + CACHE_TABLE + " (" + CACHE_TABLE_LOCAL_CACHE_TIME_COLUMN +
+    ", " + CACHE_TABLE_EXPIRY_TIME_COLUMN + ", " +
+    CACHE_TABLE_LAST_ACCESSED_TIME_COLUMN + ", " +
     CACHE_TABLE_RESPONSE_HEADER_COLUMN + ", " +
     CACHE_TABLE_RESPONSE_STATUS_CODE_COLUMN + ", " +
     CACHE_TABLE_RESPONSE_DATA_COLUMN + ", " +
     CACHE_TABLE_REQUEST_HEADER_COLUMN + ", " +
     CACHE_TABLE_REQUEST_METHOD_COLUMN + ", " + CACHE_TABLE_REQUEST_URL_COLUMN +
-    ", " + CACHE_TABLE_KEY_COLUMN + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    ", " + CACHE_TABLE_KEY_COLUMN + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
 // Sql commands for prunning the database
 const std::string TOTAL_ITEMS_QUERY_SQL =
@@ -201,8 +204,11 @@ struct SqliteCache::Impl {
 SqliteCache::SqliteCache(
     const std::shared_ptr<spdlog::logger>& pLogger,
     const std::string& databaseName,
+    int32_t requestsPerCachePrune,
     uint64_t maxItems)
-    : _pImpl(std::make_unique<Impl>(pLogger, databaseName, maxItems)) {
+    : _requestsPerCachePrune(requestsPerCachePrune),
+      _requestSinceLastPrune(0),
+      _pImpl(std::make_unique<Impl>(pLogger, databaseName, maxItems)) {
   createConnection();
 }
 
@@ -362,27 +368,30 @@ std::optional<CacheItem> SqliteCache::getEntry(const std::string& key) const {
   const int64_t itemIndex = CESIUM_SQLITE(
       sqlite3_column_int64)(this->_pImpl->_getEntryStmtWrapper.get(), 0);
 
+  const std::time_t localCacheTime = CESIUM_SQLITE(
+      sqlite3_column_int64)(this->_pImpl->_getEntryStmtWrapper.get(), 1);
+
   // parse cache item metadata
   const std::time_t expiryTime = CESIUM_SQLITE(
-      sqlite3_column_int64)(this->_pImpl->_getEntryStmtWrapper.get(), 1);
+      sqlite3_column_int64)(this->_pImpl->_getEntryStmtWrapper.get(), 2);
 
   // parse response cache
   std::string serializedResponseHeaders =
       reinterpret_cast<const char*>(CESIUM_SQLITE(
-          sqlite3_column_text)(this->_pImpl->_getEntryStmtWrapper.get(), 2));
+          sqlite3_column_text)(this->_pImpl->_getEntryStmtWrapper.get(), 3));
   std::optional<HttpHeaders> responseHeaders =
       convertStringToHeaders(serializedResponseHeaders, this->_pImpl->_pLogger);
   if (!responseHeaders) {
     return std::nullopt;
   }
   const uint16_t statusCode = static_cast<uint16_t>(CESIUM_SQLITE(
-      sqlite3_column_int)(this->_pImpl->_getEntryStmtWrapper.get(), 3));
+      sqlite3_column_int)(this->_pImpl->_getEntryStmtWrapper.get(), 4));
 
   const std::byte* rawResponseData =
       reinterpret_cast<const std::byte*>(CESIUM_SQLITE(
-          sqlite3_column_blob)(this->_pImpl->_getEntryStmtWrapper.get(), 4));
+          sqlite3_column_blob)(this->_pImpl->_getEntryStmtWrapper.get(), 5));
   const int responseDataSize = CESIUM_SQLITE(
-      sqlite3_column_bytes)(this->_pImpl->_getEntryStmtWrapper.get(), 4);
+      sqlite3_column_bytes)(this->_pImpl->_getEntryStmtWrapper.get(), 5);
   std::vector<std::byte> responseData(
       rawResponseData,
       rawResponseData + responseDataSize);
@@ -390,7 +399,7 @@ std::optional<CacheItem> SqliteCache::getEntry(const std::string& key) const {
   // parse request
   std::string serializedRequestHeaders =
       reinterpret_cast<const char*>(CESIUM_SQLITE(
-          sqlite3_column_text)(this->_pImpl->_getEntryStmtWrapper.get(), 5));
+          sqlite3_column_text)(this->_pImpl->_getEntryStmtWrapper.get(), 6));
   std::optional<HttpHeaders> requestHeaders =
       convertStringToHeaders(serializedRequestHeaders, this->_pImpl->_pLogger);
   if (!requestHeaders) {
@@ -398,10 +407,10 @@ std::optional<CacheItem> SqliteCache::getEntry(const std::string& key) const {
   }
 
   std::string requestMethod = reinterpret_cast<const char*>(CESIUM_SQLITE(
-      sqlite3_column_text)(this->_pImpl->_getEntryStmtWrapper.get(), 6));
+      sqlite3_column_text)(this->_pImpl->_getEntryStmtWrapper.get(), 7));
 
   std::string requestUrl = reinterpret_cast<const char*>(CESIUM_SQLITE(
-      sqlite3_column_text)(this->_pImpl->_getEntryStmtWrapper.get(), 7));
+      sqlite3_column_text)(this->_pImpl->_getEntryStmtWrapper.get(), 8));
 
   // update the last accessed time
   int updateStatus = CESIUM_SQLITE(sqlite3_reset)(
@@ -443,6 +452,7 @@ std::optional<CacheItem> SqliteCache::getEntry(const std::string& key) const {
   }
 
   return CacheItem{
+      localCacheTime,
       expiryTime,
       CacheRequest{
           std::move(*requestHeaders),
@@ -456,6 +466,7 @@ std::optional<CacheItem> SqliteCache::getEntry(const std::string& key) const {
 
 bool SqliteCache::storeEntry(
     const std::string& key,
+    std::time_t localCacheTime,
     std::time_t expiryTime,
     const std::string& url,
     const std::string& requestMethod,
@@ -488,7 +499,7 @@ bool SqliteCache::storeEntry(
   status = CESIUM_SQLITE(sqlite3_bind_int64)(
       this->_pImpl->_storeResponseStmtWrapper.get(),
       1,
-      static_cast<int64_t>(expiryTime));
+      static_cast<int64_t>(localCacheTime));
   if (status != SQLITE_OK) {
     SPDLOG_LOGGER_ERROR(
         this->_pImpl->_pLogger,
@@ -499,6 +510,17 @@ bool SqliteCache::storeEntry(
   status = CESIUM_SQLITE(sqlite3_bind_int64)(
       this->_pImpl->_storeResponseStmtWrapper.get(),
       2,
+      static_cast<int64_t>(expiryTime));
+  if (status != SQLITE_OK) {
+    SPDLOG_LOGGER_ERROR(
+        this->_pImpl->_pLogger,
+        CESIUM_SQLITE(sqlite3_errstr)(status));
+    return false;
+  }
+
+  status = CESIUM_SQLITE(sqlite3_bind_int64)(
+      this->_pImpl->_storeResponseStmtWrapper.get(),
+      3,
       static_cast<int64_t>(std::time(nullptr)));
   if (status != SQLITE_OK) {
     SPDLOG_LOGGER_ERROR(
@@ -510,7 +532,7 @@ bool SqliteCache::storeEntry(
   std::string responseHeaderString = convertHeadersToString(responseHeaders);
   status = CESIUM_SQLITE(sqlite3_bind_text)(
       this->_pImpl->_storeResponseStmtWrapper.get(),
-      3,
+      4,
       responseHeaderString.c_str(),
       -1,
       SQLITE_STATIC);
@@ -523,7 +545,7 @@ bool SqliteCache::storeEntry(
 
   status = CESIUM_SQLITE(sqlite3_bind_int)(
       this->_pImpl->_storeResponseStmtWrapper.get(),
-      4,
+      5,
       static_cast<int>(statusCode));
   if (status != SQLITE_OK) {
     SPDLOG_LOGGER_ERROR(
@@ -534,7 +556,7 @@ bool SqliteCache::storeEntry(
 
   status = CESIUM_SQLITE(sqlite3_bind_blob)(
       this->_pImpl->_storeResponseStmtWrapper.get(),
-      5,
+      6,
       responseData.data(),
       static_cast<int>(responseData.size()),
       SQLITE_STATIC);
@@ -548,7 +570,7 @@ bool SqliteCache::storeEntry(
   std::string requestHeaderString = convertHeadersToString(requestHeaders);
   status = CESIUM_SQLITE(sqlite3_bind_text)(
       this->_pImpl->_storeResponseStmtWrapper.get(),
-      6,
+      7,
       requestHeaderString.c_str(),
       -1,
       SQLITE_STATIC);
@@ -561,7 +583,7 @@ bool SqliteCache::storeEntry(
 
   status = CESIUM_SQLITE(sqlite3_bind_text)(
       this->_pImpl->_storeResponseStmtWrapper.get(),
-      7,
+      8,
       requestMethod.c_str(),
       -1,
       SQLITE_STATIC);
@@ -574,7 +596,7 @@ bool SqliteCache::storeEntry(
 
   status = CESIUM_SQLITE(sqlite3_bind_text)(
       this->_pImpl->_storeResponseStmtWrapper.get(),
-      8,
+      9,
       url.c_str(),
       -1,
       SQLITE_STATIC);
@@ -587,7 +609,7 @@ bool SqliteCache::storeEntry(
 
   status = CESIUM_SQLITE(sqlite3_bind_text)(
       this->_pImpl->_storeResponseStmtWrapper.get(),
-      9,
+      10,
       key.c_str(),
       -1,
       SQLITE_STATIC);

@@ -40,7 +40,8 @@ public:
       const std::shared_ptr<spdlog::logger>& pLogger,
       const std::shared_ptr<IAssetAccessor>& pAssetAccessor,
       const std::shared_ptr<ICacheDatabase>& pCacheDatabase,
-      int32_t requestsPerCachePrune = 10000);
+      int64_t pLocalCacheTime
+     );
 
   virtual ~CachingAssetAccessor() noexcept override;
 
@@ -61,8 +62,7 @@ public:
   virtual void tick() noexcept override;
 
 private:
-  int32_t _requestsPerCachePrune;
-  std::atomic<int32_t> _requestSinceLastPrune;
+  int64_t _pLocalCacheTime;
   std::shared_ptr<spdlog::logger> _pLogger;
   std::shared_ptr<IAssetAccessor> _pAssetAccessor;
   std::shared_ptr<ICacheDatabase> _pCacheDatabase;
