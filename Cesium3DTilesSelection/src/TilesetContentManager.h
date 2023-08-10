@@ -62,6 +62,8 @@ public:
 
   bool unloadTileContent(Tile& tile);
 
+  bool unloadForceTileContent(Tile& tile);
+
   void waitUntilIdle();
 
   /**

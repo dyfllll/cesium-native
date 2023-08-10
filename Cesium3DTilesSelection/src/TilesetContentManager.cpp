@@ -974,6 +974,65 @@ void TilesetContentManager::updateTileContent(
   }
 }
 
+bool TilesetContentManager::unloadForceTileContent(Tile& tile) {
+  TileLoadState state = tile.getState();
+  if (state == TileLoadState::Unloaded) {
+    return true;
+  }
+
+  if (state == TileLoadState::ContentLoading) {
+    return false;
+  }
+
+  TileContent& content = tile.getContent();
+
+  if (content.isExternalContent() || content.isEmptyContent()) {
+    return true;
+  }
+
+  // Detach raster tiles first so that the renderer's tile free
+  // process doesn't need to worry about them.
+  for (RasterMappedTo3DTile& mapped : tile.getMappedRasterTiles()) {
+    mapped.detachFromTile(*this->_externals.pPrepareRendererResources, tile);
+  }
+  tile.getMappedRasterTiles().clear();
+
+  // Unload the renderer resources and clear any raster overlay tiles. We can do
+  // this even if the tile can't be fully unloaded because this tile's geometry
+  // is being using by an async upsample operation (checked below).
+  switch (state) {
+  case TileLoadState::ContentLoaded:
+    unloadContentLoadedState(tile);
+    break;
+  case TileLoadState::Done:
+    unloadDoneState(tile);
+    break;
+  default:
+    break;
+  }
+
+  //// Are any children currently being upsampled from this tile?
+  //for (const Tile& child : tile.getChildren()) {
+  //  if (child.getState() == TileLoadState::ContentLoading &&
+  //      std::holds_alternative<CesiumGeometry::UpsampledQuadtreeNode>(
+  //          child.getTileID())) {
+  //    // Yes, a child is upsampling from this tile, so it may be using the
+  //    // tile's content from another thread via lambda capture. We can't unload
+  //    // it right now. So mark the tile as in the process of unloading and stop
+  //    // here.
+  //    tile.setState(TileLoadState::Unloading);
+  //    return false;
+  //  }
+  //}
+
+  // If we make it this far, the tile's content will be fully unloaded.
+  notifyTileUnloading(&tile);
+  content.setContentKind(TileUnknownContent{});
+  tile.setState(TileLoadState::Unloaded);
+  return true;
+}
+
+
 bool TilesetContentManager::unloadTileContent(Tile& tile) {
   TileLoadState state = tile.getState();
   if (state == TileLoadState::Unloaded) {

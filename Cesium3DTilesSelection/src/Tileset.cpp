@@ -41,6 +41,7 @@ Tileset::Tileset(
       _options(options),
       _previousFrameNumber(0),
       _distances(),
+      _forceLoads(),
       _childOcclusionProxies(),
       _pTilesetContentManager{new TilesetContentManager(
           _externals,
@@ -59,6 +60,7 @@ Tileset::Tileset(
       _options(options),
       _previousFrameNumber(0),
       _distances(),
+      _forceLoads(),
       _childOcclusionProxies(),
       _pTilesetContentManager{new TilesetContentManager(
           _externals,
@@ -77,6 +79,7 @@ Tileset::Tileset(
       _options(options),
       _previousFrameNumber(0),
       _distances(),
+      _forceLoads(),
       _childOcclusionProxies(),
       _pTilesetContentManager{new TilesetContentManager(
           _externals,
@@ -1439,8 +1442,22 @@ void Tileset::_markTileVisited(Tile& tile) noexcept {
 }
 
 
+size_t Tileset::unloadForceLoadTiles() {
+  auto iterator = _forceLoads.begin();
+  while (iterator != _forceLoads.end()) {
+    auto current = iterator;
+    iterator++;
+    const bool removed =
+        this->_pTilesetContentManager->unloadForceTileContent(**current);
+    if (removed) {
+      this->_forceLoads.erase(current);
+    }
+  }
+  return _forceLoads.size();
+}
 
-bool Tileset::addTileToLoadQueue(Tile& tile) {
+
+bool Tileset::addTileToForceLoadQueue(Tile& tile) {
   /*addTileToLoadQueue(tile, TileLoadPriorityGroup::Normal, 0);*/
   assert(
       std::find_if(
@@ -1456,10 +1473,12 @@ bool Tileset::addTileToLoadQueue(Tile& tile) {
       this->_mainThreadLoadCustomQueue.end());
 
   if (this->_pTilesetContentManager->tileNeedsWorkerThreadLoading(tile)) {
+    this->_forceLoads.push_back(&tile);
     this->_workerThreadLoadCustomQueue.push_back(
         {&tile, TileLoadPriorityGroup::Normal, 0});
     return true;
   } else if (this->_pTilesetContentManager->tileNeedsMainThreadLoading(tile)) {
+    this->_forceLoads.push_back(&tile);
     this->_mainThreadLoadCustomQueue.push_back(
         {&tile, TileLoadPriorityGroup::Normal, 0});
     return true;

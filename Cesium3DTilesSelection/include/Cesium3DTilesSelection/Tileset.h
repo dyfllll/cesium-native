@@ -91,9 +91,10 @@ public:
   ~Tileset() noexcept;
 
 
-  bool addTileToLoadQueue(
+  bool addTileToForceLoadQueue(
       Tile& tile);
 
+  size_t unloadForceLoadTiles();
 
   /**
    * @brief Get tileset credits.
@@ -442,6 +443,8 @@ private:
   // Holds computed distances, to avoid allocating them on the heap during tile
   // selection.
   std::vector<double> _distances;
+
+  std::list<Tile*> _forceLoads;
 
   // Holds the occlusion proxies of the children of a tile. Store them in this
   // scratch variable so that it can allocate only when growing bigger.
