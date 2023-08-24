@@ -6,7 +6,6 @@
 
 #include <cstddef>
 #include <optional>
-#include <atomic>
 
 namespace CesiumAsync {
 /**
@@ -46,7 +45,6 @@ public:
    */
   virtual bool storeEntry(
       const std::string& key,
-      std::time_t localCacheTime,
       std::time_t expiryTime,
       const std::string& url,
       const std::string& requestMethod,
@@ -71,10 +69,5 @@ public:
    * could not be pruned due to an errror.
    */
   virtual bool clearAll() = 0;
-
-
-  virtual std::atomic<int32_t>& requestSinceLastPrune() = 0;
-
-  virtual int32_t requestsPerCachePrune() const  = 0;
 };
 } // namespace CesiumAsync

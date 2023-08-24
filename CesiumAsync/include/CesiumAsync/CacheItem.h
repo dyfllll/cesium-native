@@ -94,16 +94,12 @@ public:
    * @param response the cache response owned by this item
    */
   CacheItem(
-      std::time_t localCacheTime,
       std::time_t cacheExpiryTime,
       CacheRequest&& request,
       CacheResponse&& response)
-      : localCacheTime(localCacheTime),
-        expiryTime(cacheExpiryTime),
+      : expiryTime(cacheExpiryTime),
         cacheRequest(std::move(request)),
         cacheResponse(std::move(response)) {}
-
-  std::time_t localCacheTime;
 
   /**
    * @brief The time point that this cache item is expired.

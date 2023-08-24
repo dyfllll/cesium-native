@@ -40,8 +40,7 @@ public:
       const std::shared_ptr<spdlog::logger>& pLogger,
       const std::shared_ptr<IAssetAccessor>& pAssetAccessor,
       const std::shared_ptr<ICacheDatabase>& pCacheDatabase,
-      int64_t pLocalCacheTime
-     );
+      int32_t requestsPerCachePrune = 10000);
 
   virtual ~CachingAssetAccessor() noexcept override;
 
@@ -50,6 +49,13 @@ public:
   get(const AsyncSystem& asyncSystem,
       const std::string& url,
       const std::vector<THeader>& headers) override;
+
+  Future<std::shared_ptr<IAssetRequest>> getNoCache(
+      const AsyncSystem& asyncSystem,
+      const std::string& url,
+      const std::vector<THeader>& headers);
+
+  const ThreadPool& getThreadPool() const noexcept { return this->_cacheThreadPool; }
 
   virtual Future<std::shared_ptr<IAssetRequest>> request(
       const AsyncSystem& asyncSystem,
@@ -62,7 +68,8 @@ public:
   virtual void tick() noexcept override;
 
 private:
-  int64_t _pLocalCacheTime;
+  int32_t _requestsPerCachePrune;
+  std::atomic<int32_t> _requestSinceLastPrune;
   std::shared_ptr<spdlog::logger> _pLogger;
   std::shared_ptr<IAssetAccessor> _pAssetAccessor;
   std::shared_ptr<ICacheDatabase> _pCacheDatabase;
