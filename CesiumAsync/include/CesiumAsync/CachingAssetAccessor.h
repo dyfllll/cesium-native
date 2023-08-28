@@ -50,13 +50,6 @@ public:
       const std::string& url,
       const std::vector<THeader>& headers) override;
 
-  Future<std::shared_ptr<IAssetRequest>> getNoCache(
-      const AsyncSystem& asyncSystem,
-      const std::string& url,
-      const std::vector<THeader>& headers);
-
-  const ThreadPool& getThreadPool() const noexcept { return this->_cacheThreadPool; }
-
   virtual Future<std::shared_ptr<IAssetRequest>> request(
       const AsyncSystem& asyncSystem,
       const std::string& verb,

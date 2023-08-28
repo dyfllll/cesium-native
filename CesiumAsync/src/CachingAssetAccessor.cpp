@@ -100,7 +100,7 @@ CachingAssetAccessor::CachingAssetAccessor(
       _pLogger(pLogger),
       _pAssetAccessor(pAssetAccessor),
       _pCacheDatabase(pCacheDatabase),
-      _cacheThreadPool(4) {}
+      _cacheThreadPool(1) {}
 
 CachingAssetAccessor::~CachingAssetAccessor() noexcept {}
 
@@ -251,13 +251,6 @@ Future<std::shared_ptr<IAssetRequest>> CachingAssetAccessor::get(
         CESIUM_TRACE_END_IN_TRACK("IAssetAccessor::get (cached)");
         return std::move(pRequest);
       });
-}
-
-Future<std::shared_ptr<IAssetRequest>> CachingAssetAccessor::getNoCache(
-    const AsyncSystem& asyncSystem,
-    const std::string& url,
-    const std::vector<THeader>& headers) {
-  return this->_pAssetAccessor->get(asyncSystem, url, headers);
 }
 
 Future<std::shared_ptr<IAssetRequest>> CachingAssetAccessor::request(
